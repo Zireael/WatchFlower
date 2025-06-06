@@ -1,202 +1,125 @@
-name: "Desktop CI builds"
+name: Desktop CI builds
 on:
   push:
   pull_request:
 
 jobs:
-  ## Windows build #############################################################
-  build-windows:
-    name: "Windows CI build (${{ matrix.config }}, ${{ matrix.qt_version }}, ${{ matrix.qt_modules }})"
+  build_linux:
+    name: "Linux CI build"
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout repository and submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup variables
+      run: |
+        echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.7.3'
+        target: 'desktop'
+        modules: 'qtconnectivity qtpositioning qtcharts'
+
+    - name: Setup env
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install libgl1-mesa-dev -y
+
+    - name: Build application
+      run: |
+        qmake --version
+        mkdir build
+        cd build/
+        qmake ../WatchFlower.pro CONFIG+=release PREFIX=/usr
+        make -j$(nproc)
+
+  build_windows:
+    name: "Windows CI build (${{ matrix.qt_arch }}, Qt ${{ matrix.qt_version }}, ${{ matrix.qt_tools }})"
     runs-on: windows-2022
     strategy:
-      fail-fast: false
       matrix:
-        config: [win64_msvc2019_64]
         qt_version: [6.7.3]
-        qt_modules: [qt.tools.qtcreator]
-
+        qt_arch: [win64_msvc2019_64]
+        qt_tools: [tools_qtcreator,tools_qtcreator_gui]
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout repository and submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      # Set version
-      - name: Set APP_VERSION env var
-        run: echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
+    - name: Setup variables
+      run: |
+        echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
 
-      # Install Qt
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: ${{ matrix.qt_version }}
-          host: 'windows'
-          target: 'desktop'
-          arch: '${{ matrix.config }}'
-          modules: 'qtconnectivity qtpositioning qtcharts ${{ matrix.qt_modules }}'
-          setup-python: 'false'
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: ${{ matrix.qt_version }}
+        target: 'desktop'
+        arch: ${{ matrix.qt_arch }}
+        modules: 'qtconnectivity qtpositioning qtcharts'
 
-      # Setup MSVC
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v2
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
 
-      # Install CMake + Ninja
-      - name: Install CMake and Ninja
-        uses: lukka/get-cmake@latest
+    - name: Setup cmake
+      uses: lukka/get-cmake@latest
 
-      # Setup MSVC dev environment
-      - name: Setup MSVC dev environment
-        uses: ilammy/msvc-dev-cmd@v1
+    - name: Setup MSVC environment
+      uses: ilammy/msvc-dev-cmd@v1
 
-      # Cache Qt installation
-      - name: Cache Qt
-        id: cache-qt-windows
-        uses: actions/cache@v4
-        with:
-          path: ../Qt
-          key: ${{ runner.os }}-qt-${{ matrix.qt_version }}-${{ matrix.config }}
-          restore-keys: |
-            ${{ runner.os }}-qt-${{ matrix.qt_version }}-
-            ${{ runner.os }}-qt-
+    - name: Build application
+      run: |
+        qmake --version
+        mkdir build
+        cd build/
+        qmake ../WatchFlower.pro CONFIG+=release
+        nmake
 
-      # Cache CMake build
-      - name: Cache CMake build folder
-        uses: actions/cache@v4
-        with:
-          path: build
-          key: ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt') }}-
-          restore-keys: |
-            ${{ runner.os }}-cmake-${{ hashFiles('CMakeLists.txt') }}-
-            ${{ runner.os }}-cmake-
+    - name: Deploy application
+      run: |
+        cd build/
+        windeployqt --qmldir ../qml/ WatchFlower.exe
 
-      # Build application
-      - name: Build application
-        run: |
-          chmod +x deploy_windows.sh
-          ./deploy_windows.sh
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: WatchFlower-${{ matrix.qt_arch }}-Qt${{ matrix.qt_version }}
+        path: build/
 
-      # Upload artifacts
-      - name: Upload app package (zip)
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-${{ matrix.config }}-${{ matrix.qt_version }}
-          path: deploy-windows/
-
-  ## macOS build ###############################################################
-  build-macos:
-    name: "macOS CI build (${{ matrix.config }}, ${{ matrix.qt_version }})"
+  build_macOS:
+    name: "macOS CI build"
     runs-on: macos-13
-    strategy:
-      fail-fast: false
-      matrix:
-        config: [macos]
-        qt_version: [6.7.3]
-
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout repository and submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      # Set version
-      - name: Set APP_VERSION env var
-        run: echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
+    - name: Setup variables
+      run: |
+        echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
 
-      # Install Qt
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: ${{ matrix.qt_version }}
-          host: 'mac'
-          target: 'desktop'
-          modules: 'qtconnectivity qtpositioning qtcharts'
-          setup-python: 'false'
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.7.3'
+        target: 'desktop'
+        modules: 'qtconnectivity qtpositioning qtcharts'
 
-      # Install CMake + Ninja
-      - name: Install CMake and Ninja
-        uses: lukka/get-cmake@latest
+    - name: Build application
+      run: |
+        qmake --version
+        mkdir build
+        cd build/
+        qmake ../WatchFlower.pro CONFIG+=release
+        make -j$(sysctl -n hw.logicalcpu)
 
-      # Cache Qt installation
-      - name: Cache Qt
-        id: cache-qt-macos
-        uses: actions/cache@v4
-        with:
-          path: ../Qt
-          key: ${{ runner.os }}-qt-${{ matrix.qt_version }}-${{ matrix.config }}
-          restore-keys: |
-            ${{ runner.os }}-qt-${{ matrix.qt_version }}-
-            ${{ runner.os }}-qt-
-
-      # Build application
-      - name: Build application
-        run: |
-          chmod +x deploy_macos.sh
-          ./deploy_macos.sh
-
-      # Upload artifacts
-      - name: Upload app package (dmg)
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-${{ matrix.config }}-${{ matrix.qt_version }}
-          path: deploy-macos/
-
-  ## Linux build ###############################################################
-  build-linux:
-    name: "Linux CI build (${{ matrix.config }}, ${{ matrix.qt_version }})"
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        config: [linux]
-        qt_version: [6.7.3]
-
-    steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Set version
-      - name: Set APP_VERSION env var
-        run: echo "APP_VERSION=1.0.0" >> $GITHUB_ENV
-
-      # Install Qt
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: ${{ matrix.qt_version }}
-          host: 'linux'
-          target: 'desktop'
-          modules: 'qtconnectivity qtpositioning qtcharts'
-          setup-python: 'false'
-
-      # Install CMake + Ninja
-      - name: Install CMake and Ninja
-        uses: lukka/get-cmake@latest
-
-      # Install dependencies
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libgl1-mesa-dev libxkbcommon-x11-0 libxcb-xinerama0
-
-      # Cache Qt installation
-      - name: Cache Qt
-        id: cache-qt-linux
-        uses: actions/cache@v4
-        with:
-          path: ../Qt
-          key: ${{ runner.os }}-qt-${{ matrix.qt_version }}-${{ matrix.config }}
-          restore-keys: |
-            ${{ runner.os }}-qt-${{ matrix.qt_version }}-
-            ${{ runner.os }}-qt-
-
-      # Build application
-      - name: Build application
-        run: |
-          chmod +x deploy_linux.sh
-          ./deploy_linux.sh
-
-      # Upload artifacts
-      - name: Upload app package (AppImage)
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-${{ matrix.config }}-${{ matrix.qt_version }}
-          path: deploy-linux/
+    - name: Deploy application
+      run: |
+        cd build/
+        macdeployqt WatchFlower.app -qmldir=../qml/ -appstore-compliant
