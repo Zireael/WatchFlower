@@ -1,4 +1,4 @@
-name: Windows Desktop CI
+name: Build Desktop App
 
 on:
   push:
@@ -7,55 +7,38 @@ on:
     branches: [ master ]
 
 jobs:
-  build:
-    name: windows-desktop
+  windows-desktop:
     runs-on: windows-latest
-
     steps:
-    # 1. Checkout the repository
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Set up Python to install aqtinstall
-    - name: Setup Python
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.x'
+        python-version: '3.10'
 
-    - name: Upgrade pip and install Qt installer
+    - name: Install aqtinstall dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install py7zr aqtinstall
+        pip install aqtinstall
 
-    # 3. Install Qt using aqtinstall
-    - name: Install Qt
+    - name: Install Qt with aqtinstall
       run: |
         python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 \
-          --outputdir $HOME/Qt --modules qtconnectivity qtcharts qtpositioning --confirm-license
+          --outputdir $Env:USERPROFILE\Qt --modules qtconnectivity qtcharts qtpositioning qtmultimedia
+      shell: pwsh
 
-    # 4. Add Qt to PATH
-    - name: Add Qt bin to PATH
-      run: echo "PATH=$HOME/Qt/6.7.3/msvc2019_64/bin:$PATH" >> $GITHUB_ENV
-
-    # 5. Setup CMake & Ninja
-    - name: Setup CMake & Ninja
-      uses: lukka/get-cmake@latest
-
-    # 6. Load MSVC environment
-    - name: Load MSVC environment
+    - name: Set up MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    # 7. Make the deploy script executable
-    - name: Make deploy script executable
-      run: chmod +x deploy_windows.sh
+    - name: Build app
+      run: |
+        .\deploy_windows.sh
+      shell: bash
 
-    # 8. Run the deployment script
-    - name: Build and deploy Windows
-      run: ./deploy_windows.sh
-
-    # 9. Upload artifacts
-    - name: Upload artifacts
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: windows-build
-        path: build_output/
+        name: WatchFlower-windows
+        path: build/*.exe
