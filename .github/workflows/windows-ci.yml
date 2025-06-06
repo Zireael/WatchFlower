@@ -1,3 +1,4 @@
+# .github/workflows/windows-ci.yml
 name: Windows CI build
 
 on:
@@ -10,31 +11,42 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # 1) Check out the code into D:/a/WatchFlower/WatchFlower
+      # ─────────────────────────────────────────────────────────────────────
+      # 1) Checkout the repository
+      # ─────────────────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2) Install Qt via aqtinstall (Python/aqt)
+      # ─────────────────────────────────────────────────────────────────────
+      # 2) Set up Python (for aqtinstall)
+      # ─────────────────────────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install aqtinstall + dependencies
+        shell: bash
         run: |
           python -m pip install setuptools>=70.1.0 py7zr==0.22.* aqtinstall==3.2.*
+
       - name: Install Qt 6.7.3 (MSVC2019 x64) with required modules
+        shell: bash
         run: |
           python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 \
             --autodesktop \
-            --outputdir "%USERPROFILE%/Qt" \
+            --outputdir "$HOME/Qt" \
             --modules qtcharts qtconnectivity qtpositioning qtdeclarative qtsvg qttools qttranslations
+
       - name: Add Qt bin to PATH
         shell: powershell
         run: |
           $qtBin = "$Env:USERPROFILE\Qt\6.7.3\msvc2019_64\bin"
           Write-Host "##[add-path]$qtBin"
 
-      # 3) Install NSIS (optional, only needed if you want an .exe installer)
+      # ─────────────────────────────────────────────────────────────────────
+      # 3) Install NSIS (optional: only needed for .exe installer)
+      # ─────────────────────────────────────────────────────────────────────
       - name: Install NSIS
         shell: powershell
         run: |
@@ -44,9 +56,11 @@ jobs:
         shell: pwsh
         run: |
           windeployqt --version
-          makensis /VERSION || echo "makensis not found; installer step will be skipped"
+          makensis /VERSION || Write-Host "makensis not found; skipping installer step"
 
-      # 4) Build & Package Windows (this is the ONLY time we run CMake)
+      # ─────────────────────────────────────────────────────────────────────
+      # 4) Build & Package Windows (only here do we run CMake, via our script)
+      # ─────────────────────────────────────────────────────────────────────
       - name: Build & Package Windows
         shell: bash
         run: |
