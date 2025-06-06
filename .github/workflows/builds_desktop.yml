@@ -44,6 +44,17 @@ jobs:
         arch: win64_msvc2019_64
         modules: 'qtconnectivity qtcharts qtpositioning'
         setup-python: 'false'
+        cache: true
+        
+    - name: Verify Qt installation
+      run: |
+        echo "Qt6_DIR: ${{ env.Qt6_DIR }}"
+        echo "QTDIR: $QTDIR"
+        echo "QT_ROOT_DIR: $QT_ROOT_DIR"
+        qmake --version
+        windeployqt --version
+        echo "Qt installation path: $(which qmake)"
+      shell: bash
         
     - name: Set up MSVC
       uses: microsoft/setup-msbuild@v2
@@ -63,8 +74,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: |
-          ${{ env.Qt6_DIR }}
-          ${{ env.QTDIR }}
+          ${{ runner.tool_cache }}/Qt
         key: ${{ runner.os }}-qt-${{ env.QT_VERSION }}-${{ matrix.arch }}
         restore-keys: |
           ${{ runner.os }}-qt-${{ env.QT_VERSION }}-
@@ -86,7 +96,18 @@ jobs:
       shell: bash
       
     - name: Run Windows deployment
-      run: ./deploy_windows.sh
+      run: |
+        # Ensure Qt is in PATH
+        export PATH="$Qt6_DIR/bin:$PATH"
+        export QTDIR="$Qt6_DIR"
+        
+        # Debug environment
+        echo "Current PATH: $PATH"
+        echo "Qt6_DIR: $Qt6_DIR"
+        echo "QTDIR: $QTDIR"
+        
+        # Run deployment script
+        ./deploy_windows.sh
       shell: bash
       env:
         CMAKE_GENERATOR: "Ninja"
