@@ -1,68 +1,172 @@
-# .github/workflows/windows-ci.yml
-name: Windows CI build
+name: "Desktop builds"
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, dev ]
   pull_request:
+    branches: [ master ]
 
 jobs:
-  windows-build:
+  ## Windows build ##################################################################
+  build-windows:
+    name: "Windows MSVC"
     runs-on: windows-2022
-
     steps:
-      # ─────────────────────────────────────────────────────────────────────
-      # 1) Checkout the repository
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      # ─────────────────────────────────────────────────────────────────────
-      # 2) Set up Python (for aqtinstall)
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Set up Python
-        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          submodules: recursive
 
-      - name: Install aqtinstall + dependencies
-        shell: bash
-        run: |
-          python -m pip install setuptools>=70.1.0 py7zr==0.22.* aqtinstall==3.2.*
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v2
 
-      - name: Install Qt 6.7.3 (MSVC2019 x64) with required modules
-        shell: bash
-        run: |
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 \
-            --autodesktop \
-            --outputdir "$HOME/Qt" \
-            --modules qtcharts qtconnectivity qtpositioning
+      - name: Setup Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtconnectivity qtpositioning qtcharts qtshadertools'
+          setup-python: 'false'
 
-      - name: Add Qt bin to PATH
-        shell: powershell
-        run: |
-          $qtBin = "$Env:USERPROFILE\Qt\6.7.3\msvc2019_64\bin"
-          Write-Host "##[add-path]$qtBin"
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 3) Install NSIS (optional: only needed for .exe installer)
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Install NSIS
-        shell: powershell
+      - name: Configure project
         run: |
-          choco install nsis --version=3.08.1 -y
+          cmake -B build -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_Dir }}"
 
-      - name: Verify windeployqt + makensis
-        shell: pwsh
-        run: |
-          windeployqt --version
-          makensis /VERSION || Write-Host "makensis not found; skipping installer step"
+      - name: Build project
+        run: cmake --build build --config Release --parallel
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 4) Build & Package Windows (only here do we run CMake, via our script)
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Build & Package Windows
-        shell: bash
+      - name: Deploy Qt application
         run: |
-          chmod +x deploy_windows.sh
-          ./deploy_windows.sh --upload
+          mkdir deploy
+          copy build\WatchFlower.exe deploy\
+          & "${{ env.Qt6_Dir }}\bin\windeployqt.exe" --qmldir . --no-translations --no-system-d3d-compiler --no-opengl-sw --no-compiler-runtime deploy\WatchFlower.exe
+
+      - name: Deploy MSVC runtime
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installDir = & $vswhere -latest -property installationPath
+          $redistDir = "$installDir\VC\Redist\MSVC"
+          $redistVersion = Get-ChildItem $redistDir | Sort-Object Name -Descending | Select-Object -First 1
+          $redistPath = "$redistDir\$redistVersion\x64\Microsoft.VC143.CRT"
+          if (Test-Path $redistPath) {
+            copy "$redistPath\msvcp140.dll" deploy\
+            copy "$redistPath\vcruntime140.dll" deploy\
+            copy "$redistPath\vcruntime140_1.dll" deploy\
+          }
+
+      - name: Create installer (NSIS)
+        run: |
+          # Run the deployment script if it exists
+          if (Test-Path ".\deploy_windows.sh") {
+            bash .\deploy_windows.sh
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-Windows-x64
+          path: deploy/
+
+  ## macOS build ####################################################################
+  build-macos:
+    name: "macOS"
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'mac'
+          target: 'desktop'
+          modules: 'qtconnectivity qtpositioning qtcharts qtshadertools'
+
+      - name: Configure project
+        run: |
+          cmake -B build -G "Unix Makefiles" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_Dir }}"
+
+      - name: Build project
+        run: cmake --build build --config Release --parallel
+
+      - name: Deploy Qt application
+        run: |
+          mkdir deploy
+          cp build/WatchFlower.app/Contents/MacOS/WatchFlower deploy/
+          ${{ env.Qt6_Dir }}/bin/macdeployqt build/WatchFlower.app -qmldir=.
+          mv build/WatchFlower.app deploy/
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-macOS
+          path: deploy/
+
+  ## Linux build ####################################################################
+  build-linux:
+    name: "Linux"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libxrandr-dev \
+            libxss-dev \
+            libglib2.0-dev \
+            libgtk-3-dev
+
+      - name: Setup Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'linux'
+          target: 'desktop'
+          modules: 'qtconnectivity qtpositioning qtcharts qtshadertools'
+
+      - name: Configure project
+        run: |
+          cmake -B build -G "Ninja" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_Dir }}"
+
+      - name: Build project
+        run: cmake --build build --config Release --parallel
+
+      - name: Deploy Qt application
+        run: |
+          mkdir deploy
+          cp build/WatchFlower deploy/
+          # Create AppImage or similar if needed
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-Linux-x64
+          path: deploy/
