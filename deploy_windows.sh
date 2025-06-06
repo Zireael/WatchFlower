@@ -4,18 +4,18 @@ set -e
 ###############################################################################
 # deploy_windows.sh
 #
-#  1) Creates a dummy assets/windows/WatchFlower.rc if it’s missing,
-#     so that “qt_add_executable(… assets/windows/WatchFlower.rc …)” never fails.
-#  2) Runs an out-of-source CMake (Release x64) in build/ → builds WatchFlower.exe.
-#  3) Copies the fresh EXE → deploy_staging/, runs windeployqt on it,
-#     then bundles qml/ (and other assets) next to the EXE.
-#  4) Renames “deploy_staging/” → “WatchFlower/” and zips with Windows tar.
-#  5) (Optional) Builds an NSIS installer if makensis is on PATH.
-#  6) (Optional) Uploads ZIP & EXE to transfer.sh (if -u/--upload is given).
+#  1) If missing, create a dummy assets/windows/WatchFlower.rc (so CMake's
+#     "qt_add_executable(... assets/windows/WatchFlower.rc )" never fails).
+#  2) Run an out-of-source CMake (Release x64) in build/, so that WatchFlower.exe
+#     is compiled into bin/WatchFlower.exe.
+#  3) Copy the fresh EXE into deploy_staging/, run windeployqt on it (pull in
+#     Qt DLLs + QML imports), then merge in qml/ (and any other runtime assets).
+#  4) Rename deploy_staging/ → WatchFlower/ and zip with Windows' native tar.
+#  5) (Optional) Build an NSIS installer if makensis is on PATH.
+#  6) (Optional) Upload ZIP/EXE to transfer.sh if “-u | --upload” is given.
 #
-# Usage:
-#   # Must be run from the same folder as CMakeLists.txt:
-#   ./deploy_windows.sh [-u|--upload]
+# Usage: must be invoked from the same directory as CMakeLists.txt:
+#    ./deploy_windows.sh [-u | --upload]
 #
 ###############################################################################
 
@@ -25,7 +25,7 @@ GIT_VERSION=$(git rev-parse --short HEAD)
 
 echo ""
 echo "=========================================================="
-echo "  $APP_NAME Packager (Windows x64) [v$APP_VERSION | git $GIT_VERSION]"
+echo "  $APP_NAME Windows Packager (x86_64) [v$APP_VERSION, git $GIT_VERSION]"
 echo "=========================================================="
 echo ""
 
@@ -38,6 +38,7 @@ while [[ $# -gt 0 ]]; do
     -u|--upload) upload_package=true; shift ;;
     *) 
       echo "Unknown argument: $1"
+      echo ""
       echo "Usage: $0 [-u|--upload]"
       exit 1
       ;;
@@ -45,10 +46,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 #─────────────────────────────────────────────────────────────────────────────
-# 2) INJECT dummy assets/windows/WatchFlower.rc IF MISSING
+# 2) INJECT dummy .rc if MISSING
 #─────────────────────────────────────────────────────────────────────────────
-# We assume this script is executed from the same directory that holds CMakeLists.txt.
-
 if [ ! -d assets/windows ]; then
   mkdir -p assets/windows
 fi
@@ -56,8 +55,15 @@ fi
 if [ ! -f assets/windows/WatchFlower.rc ]; then
   echo "---- Creating dummy assets/windows/WatchFlower.rc"
   cat > assets/windows/WatchFlower.rc << 'EOF'
-// Dummy .rc so that CMake’s “qt_add_executable(… assets/windows/WatchFlower.rc …)”
-// never errors if no real resource file is present.
+// Dummy .rc so that CMake’s “qt_add_executable(
+//
+//    WatchFlower
+//    WIN32
+//    …
+//    assets/windows/WatchFlower.rc
+// )
+//
+// never errors out if you don’t already have a real .rc file.
 #include <windows.h>
 1 VERSIONINFO
  FILEVERSION     1,0,0,0
@@ -83,19 +89,19 @@ EOF
 fi
 
 #─────────────────────────────────────────────────────────────────────────────
-# 3) CLEAN & CREATE build/ DIRECTORY
+# 3) CLEAN & CREATE build/ directory
 #─────────────────────────────────────────────────────────────────────────────
 if [ -d build ]; then
-  echo "---- Removing old build/"
+  echo "---- Removing old build/ directory"
   rm -rf build
 fi
 mkdir build
 pushd build > /dev/null
 
 #─────────────────────────────────────────────────────────────────────────────
-# 4) CONFIGURE + BUILD (Release, x64)
+# 4) CONFIGURE + BUILD with CMake (Release x64)
 #─────────────────────────────────────────────────────────────────────────────
-echo "---- Configuring CMake (Release x64)"
+echo "---- Configuring CMake in Release mode (x64)"
 cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release ..
 
 echo "---- Building WatchFlower (Release)"
@@ -104,14 +110,11 @@ cmake --build . --config Release
 popd > /dev/null
 
 #─────────────────────────────────────────────────────────────────────────────
-# 5) LOCATE the BUILT EXE
+# 5) LOCATE the freshly built EXE
 #─────────────────────────────────────────────────────────────────────────────
-# According to this repo’s CMakeLists.txt, the EXE ends up in:
-#   <PROJECT_SOURCE_DIR>/bin/WatchFlower.exe
-
 EXE_PATH="bin/WatchFlower.exe"
 if [ ! -f "$EXE_PATH" ]; then
-  echo "ERROR: '$EXE_PATH' not found after build."
+  echo "ERROR: Expected to find '$EXE_PATH' after build, but it does not exist."
   exit 1
 fi
 
@@ -126,32 +129,31 @@ echo "---- Copying WatchFlower.exe → deploy_staging/"
 cp "$EXE_PATH" deploy_staging/
 
 #─────────────────────────────────────────────────────────────────────────────
-# 7) RUN WINDEPLOYQT on the EXE
+# 7) RUN WINDEPLOYQT on that EXE
 #─────────────────────────────────────────────────────────────────────────────
 echo "---- Running windeployqt on deploy_staging/WatchFlower.exe"
-# --qmldir should point at your repo’s qml/ folder (one level up).
+#  Note: --qmldir must point at the qml/ folder one level up:
 windeployqt deploy_staging/WatchFlower.exe --qmldir ../qml
 
 #─────────────────────────────────────────────────────────────────────────────
-# 8) COPY QML + ANY OTHER RUNTIME ASSETS
+# 8) COPY QML (and any other static assets) into deploy_staging/
 #─────────────────────────────────────────────────────────────────────────────
 echo "---- Copying qml/ into deploy_staging/"
 cp -r qml deploy_staging/
 
-# If you have icons, translations, etc. under, say, assets/icons or i18n/,
-# copy those folders as well. Example:
-#   cp -r assets/images deploy_staging/
+# If you have icons or i18n folders, do:
+#   cp -r assets/icons deploy_staging/
 #   cp -r i18n deploy_staging/
 
 #─────────────────────────────────────────────────────────────────────────────
-# 9) RENAME deploy_staging/ → final “WatchFlower/” folder
+# 9) RENAME deploy_staging → final “WatchFlower/” folder
 #─────────────────────────────────────────────────────────────────────────────
 echo "---- Renaming deploy_staging → $APP_NAME/"
 rm -rf "$APP_NAME"
 mv deploy_staging "$APP_NAME"
 
 #─────────────────────────────────────────────────────────────────────────────
-# 10) CREATE ZIP via native Windows tar (no 7z needed)
+# 10) CREATE a ZIP via native Windows tar (no 7z required)
 #─────────────────────────────────────────────────────────────────────────────
 ZIP_NAME="$APP_NAME-$APP_VERSION-win64.zip"
 echo "---- Creating ZIP → $ZIP_NAME"
@@ -159,30 +161,31 @@ rm -f "$ZIP_NAME"
 tar -a -c -f "$ZIP_NAME" "$APP_NAME"
 
 #─────────────────────────────────────────────────────────────────────────────
-# 11) (Optional) CREATE NSIS installer if makensis is on PATH
+# 11) (Optional) Build NSIS installer (if makensis is on PATH)
 #─────────────────────────────────────────────────────────────────────────────
 if command -v makensis > /dev/null 2>&1; then
   echo "---- Building NSIS installer"
-  # NSIS script (assets/windows/setup.nsi) expects to find WatchFlower/ under assets/windows/
+  # The NSIS script (assets/windows/setup.nsi) expects to find “WatchFlower/”
+  # under assets/windows/. So move it temporarily:
   rm -rf assets/windows/"$APP_NAME"
   mkdir -p assets/windows
   mv "$APP_NAME" assets/windows/"$APP_NAME"
 
   makensis assets/windows/setup.nsi
 
-  # NSIS will drop something like “WatchFlower-6.0-win64.exe” in cwd:
+  # NSIS usually emits something like “WatchFlower-6.0-win64.exe” in cwd
   if ls assets/windows/*.exe 1> /dev/null 2>&1; then
     mv assets/windows/*.exe "$APP_NAME-$APP_VERSION-win64-installer.exe"
   fi
 
-  # Restore the WatchFlower/ folder so the repo root stays clean
+  # Move the folder back so the repo root isn’t left in a weird state:
   mv assets/windows/"$APP_NAME" "$APP_NAME"
 else
   echo "---- Skipping NSIS (makensis not found)"
 fi
 
 #─────────────────────────────────────────────────────────────────────────────
-# 12) (Optional) UPLOAD ZIP & EXE to transfer.sh
+# 12) (Optional) Upload artifacts to transfer.sh (if requested)
 #─────────────────────────────────────────────────────────────────────────────
 if [[ "$upload_package" == true ]]; then
   echo "---- Uploading ZIP to transfer.sh"
@@ -199,7 +202,7 @@ fi
 
 echo ""
 echo "=========================================================="
-echo "  Package complete!"
+echo "  Windows package complete!"
 echo "    • ZIP     → $ZIP_NAME"
 if [[ -f "$APP_NAME-$APP_VERSION-win64-installer.exe" ]]; then
   echo "    • Installer → $APP_NAME-$APP_VERSION-win64-installer.exe"
