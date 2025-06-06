@@ -35,16 +35,38 @@ command_exists() {
 
 # Function to find Qt installation
 find_qt_installation() {
+    # GitHub Actions Qt installation paths
     local qt_dirs=(
+        "${Qt6_DIR}"
+        "${QTDIR}"
+        "${QT_ROOT_DIR}"
+        "${RUNNER_WORKSPACE}/Qt/${QT_VERSION}/msvc2019_64"
         "C:/Qt/${QT_VERSION}/msvc2019_64"
         "C:/Qt/${QT_VERSION}/msvc2022_64"
         "C:/Qt/Tools/QtCreator/bin"
-        "${QTDIR}"
-        "${QT_ROOT_DIR}"
+        "/c/Qt/${QT_VERSION}/msvc2019_64"
+        "/c/Qt/${QT_VERSION}/msvc2022_64"
     )
     
+    # Also check PATH for qmake
+    if command_exists qmake; then
+        local qmake_path
+        qmake_path=$(which qmake)
+        if [[ -n "$qmake_path" ]]; then
+            # Get directory containing qmake, then parent directory
+            local qt_bin_dir
+            qt_bin_dir=$(dirname "$qmake_path")
+            local qt_root
+            qt_root=$(dirname "$qt_bin_dir")
+            if [[ -d "$qt_root" && -f "$qt_root/bin/qmake.exe" ]]; then
+                echo "$qt_root"
+                return 0
+            fi
+        fi
+    fi
+    
     for qt_dir in "${qt_dirs[@]}"; do
-        if [[ -d "$qt_dir" && -f "$qt_dir/bin/qmake.exe" ]]; then
+        if [[ -n "$qt_dir" && -d "$qt_dir" && -f "$qt_dir/bin/qmake.exe" ]]; then
             echo "$qt_dir"
             return 0
         fi
@@ -57,12 +79,37 @@ find_qt_installation() {
 setup_qt_environment() {
     echo "=== Setting up Qt Environment ==="
     
+    # Print environment variables for debugging
+    echo "Environment variables:"
+    echo "  Qt6_DIR: ${Qt6_DIR:-'not set'}"
+    echo "  QTDIR: ${QTDIR:-'not set'}"
+    echo "  QT_ROOT_DIR: ${QT_ROOT_DIR:-'not set'}"
+    echo "  PATH: ${PATH}"
+    
+    # Check if Qt tools are already in PATH
+    if command_exists qmake && command_exists windeployqt; then
+        echo "Qt tools found in PATH"
+        qmake --version
+        windeployqt --version
+        
+        # Get Qt installation directory from qmake
+        local qmake_path
+        qmake_path=$(which qmake)
+        QT_DIR=$(dirname $(dirname "$qmake_path"))
+        export QTDIR="$QT_DIR"
+        echo "Qt installation detected at: $QT_DIR"
+        return 0
+    fi
+    
     # Try to find Qt installation
     QT_DIR=$(find_qt_installation)
     if [[ -z "$QT_DIR" ]]; then
         echo "ERROR: Qt installation not found!"
-        echo "Please install Qt ${QT_VERSION} with MSVC ${MSVC_VERSION} support"
-        echo "Or set QTDIR environment variable"
+        echo "Available Qt installations:"
+        find /c/Qt* -name "qmake.exe" 2>/dev/null || true
+        find /d/a -name "qmake.exe" 2>/dev/null || true
+        echo "Please install Qt ${QT_VERSION} with MSVC support"
+        echo "Or set Qt6_DIR/QTDIR environment variable"
         exit 1
     fi
     
@@ -74,17 +121,18 @@ setup_qt_environment() {
     
     # Verify Qt tools
     if ! command_exists qmake; then
-        echo "ERROR: qmake not found in PATH"
+        echo "ERROR: qmake not found in PATH after adding ${QT_DIR}/bin"
         exit 1
     fi
     
     if ! command_exists windeployqt; then
-        echo "ERROR: windeployqt not found in PATH"
+        echo "ERROR: windeployqt not found in PATH after adding ${QT_DIR}/bin"
         exit 1
     fi
     
     echo "Qt tools verified successfully"
     qmake --version
+    windeployqt --version
 }
 
 # Function to setup MSVC environment
