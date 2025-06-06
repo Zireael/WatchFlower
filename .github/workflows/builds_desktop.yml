@@ -31,8 +31,7 @@ jobs:
     - name: Install Qt
       run: |
         python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 \
-          --outputdir $HOME/Qt --modules qtconnectivity qtcharts qtpositioning \
-           --confirm-license
+          --outputdir $HOME/Qt --modules qtconnectivity qtcharts qtpositioning --confirm-license
 
     # 4. Add Qt to PATH
     - name: Add Qt bin to PATH
