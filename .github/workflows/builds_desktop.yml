@@ -1,124 +1,58 @@
-name: "Desktop builds"
+name: "Desktop CI builds"
 on:
   push:
   pull_request:
   workflow_dispatch:
 
 jobs:
-
-################################################################################
-
-  build_linux:
-    name: "Linux CI build"
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.3'
-          modules: 'qtconnectivity qtcharts qtpositioning'
-
-      - name: Build application
-        run: |
-          qmake --version
-          qmake PREFIX=/usr WatchFlower.pro CONFIG+=release
-          make -j$(nproc)
-
-################################################################################
-
-  build_windows:
+  ## Windows build ##################################################################
+  build-windows:
     name: "Windows CI build"
     runs-on: windows-2022
     steps:
+      # Checkout the repository
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Install Qt
+      - name: Setup Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.2'
+          host: 'windows' 
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtconnectivity qtpositioning qtcharts'
+          setup-python: false
+
+      # Setup MSVC
       - name: Setup MSVC
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          version: '6.7.3'
-          arch: 'win64_msvc2022_64'
-          modules: 'qtconnectivity qtcharts qtpositioning'
+          arch: x64
 
+      # Build the application
       - name: Build application
         run: |
-          qmake --version
-          qmake WatchFlower.pro CONFIG+=release
-          nmake
+          mkdir build
+          cd build
+          cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
 
+      # Deploy the application  
       - name: Deploy application
+        shell: bash
         run: |
-          mkdir deploy
-          copy release\WatchFlower.exe deploy\
-          windeployqt --qmldir qml deploy\WatchFlower.exe
-          
-      - name: Upload artifacts
+          ./deploy_windows.sh
+
+      # Upload artifacts
+      - name: Upload artifacts  
         uses: actions/upload-artifact@v4
         with:
           name: WatchFlower-Windows
-          path: deploy/
-
-################################################################################
-
-  build_macos:
-    name: "macOS CI build" 
-    runs-on: macos-12
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.3'
-          modules: 'qtconnectivity qtcharts qtpositioning'
-
-      - name: Build application
-        run: |
-          qmake --version
-          qmake WatchFlower.pro CONFIG+=release
-          make -j$(sysctl -n hw.logicalcpu)
-
-################################################################################
-
-  deploy_windows:
-    name: "Windows deployment"
-    runs-on: windows-2022
-    if: github.ref == 'refs/heads/master'
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.3'
-          arch: 'win64_msvc2022_64'
-          modules: 'qtconnectivity qtcharts qtpositioning'
-
-      - name: Build and deploy application
-        run: .\deploy_windows.sh
-        shell: bash
-
-      - name: Upload deployment artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-Windows-Deployment
-          path: deploy/
+          path: bin/
