@@ -1,4 +1,4 @@
-name: "Desktop builds"
+name: "_old_ Desktop builds"
 
 on:
   push:
