@@ -1,61 +1,89 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# WatchFlower Windows deployment script
-# Fixed version addressing common MSYS2/windeployqt issues
+export APP_NAME="WatchFlower"
+export APP_VERSION=5.4
+export GIT_VERSION=$(git rev-parse --short HEAD)
 
-set -e
+echo "> $APP_NAME packager (Windows x86_64) [v$APP_VERSION]"
 
-echo "Starting Windows deployment..."
+## CHECKS ######################################################################
 
-# Ensure we're in the correct directory
-cd "$(dirname "$0")"
-
-# Set up MSYS2 environment variables
-export MSYSTEM=MINGW64
-export PATH="/mingw64/bin:$PATH"
-
-# Check if windeployqt is available
-if ! command -v windeployqt &> /dev/null; then
-    echo "Error: windeployqt not found. Installing qt5-tools..."
-    pacman -Sy --noconfirm mingw-w64-x86_64-qt5-tools
+if [ ${PWD##*/} != $APP_NAME ]; then
+  echo "This script MUST be run from the $APP_NAME/ directory"
+  exit 1
 fi
 
-# Verify the executable exists
-if [ ! -f "WatchFlower.exe" ]; then
-    echo "Error: WatchFlower.exe not found. Please build the application first."
-    exit 1
+## SETTINGS ####################################################################
+
+use_contribs=false
+make_install=false
+create_package=false
+upload_package=false
+
+while [[ $# -gt 0 ]]
+do
+case $1 in
+  -c|--contribs)
+  use_contribs=true
+  ;;
+  -i|--install)
+  make_install=true
+  ;;
+  -p|--package)
+  create_package=true
+  ;;
+  -u|--upload)
+  upload_package=true
+  ;;
+  *)
+  echo "> Unknown argument '$1'"
+  ;;
+esac
+shift # skip argument or value
+done
+
+## APP INSTALL #################################################################
+
+if [[ $make_install = true ]] ; then
+  echo '---- Running make install'
+  make INSTALL_ROOT=bin/ install
+
+  #echo '---- Installation directory content recap (after make install):'
+  #find bin/
 fi
 
-# Create deployment directory
-DEPLOY_DIR="WatchFlower_deploy"
-rm -rf "$DEPLOY_DIR"
-mkdir -p "$DEPLOY_DIR"
+## DEPLOY ######################################################################
 
-# Copy the executable
-cp WatchFlower.exe "$DEPLOY_DIR/"
+echo '---- Running windeployqt'
+windeployqt bin/ --qmldir qml/
 
-# Deploy Qt dependencies with explicit paths and options
-echo "Deploying Qt dependencies..."
-windeployqt \
-    --dir "$DEPLOY_DIR" \
-    --qmldir src/qml \
-    --verbose 2 \
-    --compiler-runtime \
-    --no-translations \
-    --no-system-d3d-compiler \
-    --no-opengl-sw \
-    "$DEPLOY_DIR/WatchFlower.exe"
+#echo '---- Installation directory content recap (after windeployqt):'
+#find bin/
 
-# Copy additional MSYS2 runtime dependencies that windeployqt might miss
-echo "Copying additional runtime dependencies..."
-cp /mingw64/bin/libgcc_s_seh-1.dll "$DEPLOY_DIR/" 2>/dev/null || true
-cp /mingw64/bin/libwinpthread-1.dll "$DEPLOY_DIR/" 2>/dev/null || true
-cp /mingw64/bin/libstdc++-6.dll "$DEPLOY_DIR/" 2>/dev/null || true
+mv bin $APP_NAME
 
-# Copy any additional application resources
-if [ -d "assets" ]; then
-    cp -r assets "$DEPLOY_DIR/"
+## PACKAGE (zip) ###############################################################
+
+if [[ $create_package = true ]] ; then
+  echo '---- Compressing package'
+  7z a $APP_NAME-$APP_VERSION-win64.zip $APP_NAME
 fi
 
-echo "Windows deployment completed successfully!"
-echo "Deployment directory: $DEPLOY_DIR"
+## PACKAGE (NSIS) ##############################################################
+
+if [[ $create_package = true ]] ; then
+  echo '---- Creating installer'
+  mv $APP_NAME assets/windows/$APP_NAME
+  makensis assets/windows/setup.nsi
+  mv assets/windows/*.exe $APP_NAME-$APP_VERSION-win64.exe
+fi
+
+## UPLOAD ######################################################################
+
+if [[ $upload_package = true ]] ; then
+  printf "---- Uploading to transfer.sh"
+  curl --upload-file $APP_NAME*.zip https://transfer.sh/$APP_NAME-$APP_VERSION-git$GIT_VERSION-win64.zip
+  printf "\n"
+  curl --upload-file $APP_NAME*.exe https://transfer.sh/$APP_NAME-$APP_VERSION-git$GIT_VERSION-win64.exe
+  printf "\n"
+fi
