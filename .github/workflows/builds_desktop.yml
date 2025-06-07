@@ -31,7 +31,7 @@ jobs:
           $qtRoot = "$Env:USERPROFILE\Qt"
           python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 `
             --outputdir $qtRoot `
-            --modules connectivity charts positioning multimedia
+            --modules qtconnectivity qtcharts qtpositioning qtmultimedia
 
       - name: Add Qt tools to PATH
         shell: pwsh
