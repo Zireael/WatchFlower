@@ -154,16 +154,14 @@ jobs:
       - name: Deploy application
         run: sh deploy_windows.sh -c -p
 
-      # Upload application ZIP
-      - name: Upload application ZIP
+      - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ${{env.APP_NAME}}-${{env.APP_VERSION}}-win64.zip
-          path: ${{env.APP_NAME}}-${{env.APP_VERSION}}-win64.zip
-
-      # Upload NSIS installer
-      - name: Upload NSIS installer
+          name: WatchFlower Windows ZIP
+          path: 'WatchFlower-*-win64.zip'
+      
+      - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{env.APP_NAME}}-${{env.APP_VERSION}}-win64.exe
-          path: ${{env.APP_NAME}}-${{env.APP_VERSION}}-win64.exe
+          name: WatchFlower Windows Installer
+          path: 'WatchFlower-*-win64.exe'
