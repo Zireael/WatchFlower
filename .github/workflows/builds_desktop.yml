@@ -2,129 +2,90 @@ name: "Desktop CI builds"
 on:
   push:
   pull_request:
-  workflow_dispatch:
 
 jobs:
-  ## GNU/Linux build ###########################################################
+
+################################################################################
+
   build-linux:
     name: "Linux CI build"
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      # Checkout the repository
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Install Qt
-      - name: Install Qt
+      - name: Setup Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
+          target: 'desktop'
           modules: 'qtconnectivity qtcharts qtpositioning'
 
-      # Install dependencies
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install cmake ninja-build pkgconf libbluetooth-dev
-
-      # Build application
       - name: Build application
         run: |
-          cmake -B build/ -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/ --parallel $(nproc)
+          cmake -B build/ -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ --config Release --parallel $(nproc)
 
-      # Deploy application
-      - name: Deploy application
-        run: ./deploy_linux.sh
+################################################################################
 
-      # Upload artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-linux
-          path: bin/
-
-  ## macOS build ###############################################################
-  build-macos:
+  build-macOS:
     name: "macOS CI build"
-    runs-on: macos-12
+    runs-on: macos-14
     steps:
-      # Checkout the repository
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Install Qt
-      - name: Install Qt
+      - name: Setup Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
+          target: 'desktop'
           modules: 'qtconnectivity qtcharts qtpositioning'
 
-      # Install dependencies
-      - name: Install dependencies
-        run: |
-          brew install cmake ninja
-
-      # Build application
       - name: Build application
         run: |
-          cmake -B build/ -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/ --parallel $(sysctl -n hw.logicalcpu)
+          cmake -B build/ -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ --config Release --parallel $(sysctl -n hw.logicalcpu)
 
-      # Deploy application
-      - name: Deploy application
-        run: ./deploy_macos.sh
+################################################################################
 
-      # Upload artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-macOS
-          path: bin/
-
-  ## Windows build #############################################################
   build-windows:
     name: "Windows CI build"
     runs-on: windows-2022
     steps:
-      # Checkout the repository
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Install Qt
-      - name: Install Qt
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
-          host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
           modules: 'qtconnectivity qtcharts qtpositioning'
 
-      # Setup MSVC
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v2
-
-      # Build application
       - name: Build application
         run: |
-          cmake -B build/ -DCMAKE_BUILD_TYPE=Release
+          cmake -B build/ -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022" -A x64
           cmake --build build/ --config Release --parallel
 
-      # Deploy application
       - name: Deploy application
-        shell: bash
-        run: ./deploy_windows.sh
+        run: |
+          ./deploy_windows.sh
 
-      # Upload artifacts
-      - name: Upload artifacts
+      - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WatchFlower-Windows
+          name: WatchFlower-Windows-x64
           path: bin/
