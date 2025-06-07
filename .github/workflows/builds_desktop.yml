@@ -1,58 +1,59 @@
-name: "Desktop CI builds"
+# .github/workflows/builds_desktop.yml
+name: Build Desktop App
+
 on:
   push:
+    branches: [ master ]
   pull_request:
-  workflow_dispatch:
+    branches: [ master ]
 
 jobs:
-  ## Windows build ##################################################################
-  build-windows:
-    name: "Windows CI build"
-    runs-on: windows-2022
+  windows-desktop:
+    runs-on: windows-latest
+
     steps:
-      # Checkout the repository
-      - name: Checkout repository and submodules
+      - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          submodules: recursive
+          python-version: '3.12'
 
-      # Install Qt
-      - name: Setup Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.2'
-          host: 'windows' 
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          modules: 'qtconnectivity qtpositioning qtcharts'
-          setup-python: false
-
-      # Setup MSVC
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      # Build the application
-      - name: Build application
+      - name: Install aqtinstall & friends
+        shell: pwsh
         run: |
-          mkdir build
-          cd build
-          cmake .. -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --config Release
+          python -m pip install --upgrade pip
+          # pin to known-good versions
+          pip install setuptools>=70.1.0 py7zr==0.22.* aqtinstall==3.2.*
 
-      # Deploy the application  
-      - name: Deploy application
+      - name: Install Qt 6.7.3 via aqt
+        shell: pwsh
+        run: |
+          $qtRoot = "$Env:USERPROFILE\Qt"
+          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 `
+            --outputdir $qtRoot `
+            --modules qtconnectivity qtcharts qtpositioning qtmultimedia
+
+      - name: Add Qt tools to PATH
+        shell: pwsh
+        run: |
+          # Use the official GITHUB_PATH mechanism instead of deprecated add-path
+          echo "$Env:USERPROFILE\Qt\6.7.3\msvc2019_64\bin" >> $Env:GITHUB_PATH
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build app
         shell: bash
         run: |
+          # Ensure our script is runnable
+          chmod +x ./deploy_windows.sh
+          # Invoke the build script
           ./deploy_windows.sh
 
-      # Upload artifacts
-      - name: Upload artifacts  
+      - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: WatchFlower-Windows
-          path: bin/
+          name: WatchFlower-windows
+          path: build/*.exe
