@@ -1,222 +1,130 @@
-name: Desktop Builds
-
+name: "Desktop CI builds"
 on:
   push:
-    branches: [ master, develop ]
   pull_request:
-    branches: [ master ]
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: windows-2022
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        
-    - name: Setup MSVC
-      uses: microsoft/setup-msbuild@v2
-      
-    - name: Install CMake and Ninja
-      run: |
-        choco install cmake ninja
-        
-    - name: Setup Qt Cache
-      id: cache-qt
-      uses: actions/cache@v3
-      with:
-        path: |
-          ${{ runner.workspace }}/Qt
-        key: ${{ runner.os }}-Qt-6.7.3-cache-v2
-        
-    - name: Setup Qt Environment
-      run: |
-        echo "RUNNER_WORKSPACE=${{ runner.workspace }}" >> $env:GITHUB_ENV
-        echo "QT_ROOT_DIR=${{ runner.workspace }}\Qt" >> $env:GITHUB_ENV
-        
-    - name: Install Qt
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install aqtinstall
-        
-        # Create Qt directory if it doesn't exist
-        if (!(Test-Path "${{ runner.workspace }}\Qt\6.7.3\win64_msvc2022_64")) {
-          Write-Host "Installing Qt 6.7.3..."
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 -O "${{ runner.workspace }}\Qt"
-          
-          Write-Host "Installing Qt modules..."
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 -m qtconnectivity -O "${{ runner.workspace }}\Qt"
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 -m qtcharts -O "${{ runner.workspace }}\Qt"
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 -m qtpositioning -O "${{ runner.workspace }}\Qt"
-          python -m aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 -m qtshadertools -O "${{ runner.workspace }}\Qt"
-        } else {
-          Write-Host "Qt 6.7.3 already cached"
-        }
-      shell: pwsh
-      
-    - name: Verify Qt Installation
-      run: |
-        $qtDir = "${{ runner.workspace }}\Qt\6.7.3\win64_msvc2022_64"
-        Write-Host "Qt directory: $qtDir"
-        Write-Host "Qt directory exists: $(Test-Path $qtDir)"
-        if (Test-Path $qtDir) {
-          Write-Host "Contents of Qt bin directory:"
-          Get-ChildItem "$qtDir\bin" | Select-Object Name | Format-Table -AutoSize
-        }
-        
-        # Add Qt to PATH
-        echo "$qtDir\bin" >> $env:GITHUB_PATH
-        echo "Qt6_DIR=$qtDir\lib\cmake\Qt6" >> $env:GITHUB_ENV
-        echo "CMAKE_PREFIX_PATH=$qtDir" >> $env:GITHUB_ENV
-      shell: pwsh
-      
-    - name: Configure CMake
-      run: |
-        mkdir build
-        cd build
-        cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${{ runner.workspace }}\Qt\6.7.3\win64_msvc2022_64" -DQt6_DIR="${{ runner.workspace }}\Qt\6.7.3\win64_msvc2022_64\lib\cmake\Qt6"
-        
-    - name: Build WatchFlower
-      run: |
-        cd build
-        cmake --build . --config Release --parallel 4
-        
-    - name: Create Deployment Directory
-      run: |
-        mkdir WatchFlower_Windows
-        
-    - name: Copy Executable
-      run: |
-        if (Test-Path "build\Release\WatchFlower.exe") {
-          Copy-Item "build\Release\WatchFlower.exe" "WatchFlower_Windows\"
-        } elseif (Test-Path "build\WatchFlower.exe") {
-          Copy-Item "build\WatchFlower.exe" "WatchFlower_Windows\"
-        } else {
-          Write-Error "WatchFlower.exe not found"
-          exit 1
-        }
-      shell: pwsh
-      
-    - name: Deploy Qt Dependencies
-      run: |
-        cd WatchFlower_Windows
-        ${{ runner.workspace }}\Qt\6.7.3\win64_msvc2022_64\bin\windeployqt.exe --release --no-system-d3d-compiler --no-opengl-sw WatchFlower.exe
-        
-    - name: List Deployment Contents
-      run: |
-        Write-Host "Deployment directory contents:"
-        Get-ChildItem WatchFlower_Windows -Recurse | Select-Object FullName | Format-Table -AutoSize
-      shell: pwsh
-      
-    - name: Test Executable
-      run: |
-        cd WatchFlower_Windows
-        Write-Host "Testing WatchFlower.exe..."
-        .\WatchFlower.exe --version 2>&1 | Write-Host
-      shell: pwsh
-      continue-on-error: true
-      
-    - name: Create Archive
-      run: |
-        $archiveName = "WatchFlower_Windows_$(Get-Date -Format 'yyyyMMdd').zip"
-        Compress-Archive -Path "WatchFlower_Windows\*" -DestinationPath $archiveName
-        Write-Host "Created archive: $archiveName"
-        echo "ARCHIVE_NAME=$archiveName" >> $env:GITHUB_ENV
-      shell: pwsh
-      
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: WatchFlower-Windows
-        path: ${{ env.ARCHIVE_NAME }}
-        retention-days: 30
-
+  ## GNU/Linux build ###########################################################
   build-linux:
-    runs-on: ubuntu-22.04
-    
+    name: "Linux CI build"
+    runs-on: ubuntu-20.04
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake ninja-build
-        
-    - name: Install Qt
-      run: |
-        sudo apt-get install -y qt6-base-dev qt6-connectivity-dev qt6-charts-dev qt6-positioning-dev qt6-tools-dev qt6-l10n-tools libqt6charts6-dev
-        
-    - name: Configure CMake
-      run: |
-        mkdir build
-        cd build
-        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-        
-    - name: Build WatchFlower
-      run: |
-        cd build
-        ninja
-        
-    - name: Create AppImage (optional)
-      run: |
-        mkdir -p WatchFlower_Linux/usr/bin
-        cp build/WatchFlower WatchFlower_Linux/usr/bin/
-        echo "Linux build completed"
-      continue-on-error: true
-        
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: WatchFlower-Linux
-        path: WatchFlower_Linux/
-        retention-days: 30
+      # Checkout the repository
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
+      # Install Qt
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtconnectivity qtcharts qtpositioning'
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install cmake ninja-build pkgconf libbluetooth-dev
+
+      # Build application
+      - name: Build application
+        run: |
+          cmake -B build/ -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ --parallel $(nproc)
+
+      # Deploy application
+      - name: Deploy application
+        run: ./deploy_linux.sh
+
+      # Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-linux
+          path: bin/
+
+  ## macOS build ###############################################################
   build-macos:
-    runs-on: macos-13
-    
+    name: "macOS CI build"
+    runs-on: macos-12
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        
-    - name: Install Dependencies
-      run: |
-        brew install cmake ninja qt@6
-        
-    - name: Configure CMake
-      run: |
-        mkdir build
-        cd build
-        export PATH="/opt/homebrew/opt/qt@6/bin:$PATH"
-        cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/qt@6"
-        
-    - name: Build WatchFlower
-      run: |
-        cd build
-        ninja
-        
-    - name: Create macOS Bundle
-      run: |
-        mkdir WatchFlower_macOS
-        cp -r build/WatchFlower.app WatchFlower_macOS/ || echo "App bundle creation failed"
-        echo "macOS build completed"
-      continue-on-error: true
-        
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: WatchFlower-macOS
-        path: WatchFlower_macOS/
-        retention-days: 30
+      # Checkout the repository
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Install Qt
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtconnectivity qtcharts qtpositioning'
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+
+      # Build application
+      - name: Build application
+        run: |
+          cmake -B build/ -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ --parallel $(sysctl -n hw.logicalcpu)
+
+      # Deploy application
+      - name: Deploy application
+        run: ./deploy_macos.sh
+
+      # Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-macOS
+          path: bin/
+
+  ## Windows build #############################################################
+  build-windows:
+    name: "Windows CI build"
+    runs-on: windows-2022
+    steps:
+      # Checkout the repository
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Install Qt
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtconnectivity qtcharts qtpositioning'
+
+      # Setup MSVC
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      # Build application
+      - name: Build application
+        run: |
+          cmake -B build/ -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ --config Release --parallel
+
+      # Deploy application
+      - name: Deploy application
+        shell: bash
+        run: ./deploy_windows.sh
+
+      # Upload artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-Windows
+          path: bin/
