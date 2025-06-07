@@ -1,7 +1,8 @@
-name: "Desktop CI builds"
+name: "Desktop builds"
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
 
@@ -16,62 +17,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Qt
+      - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
-          host: 'linux'
-          target: 'desktop'
-          modules: 'qtconnectivity qtcharts qtpositioning qt5compat qtshadertools'
+          modules: 'qtconnectivity qtcharts qtpositioning'
 
       - name: Build application
         run: |
           qmake --version
           qmake PREFIX=/usr WatchFlower.pro CONFIG+=release
           make -j$(nproc)
-
-      - name: Deploy application
-        run: ./deploy_linux.sh
-
-      - name: Upload AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-linux-x86_64.AppImage
-          path: bin/WatchFlower-linux-x86_64.AppImage
-
-################################################################################
-
-  build_mac:
-    name: "macOS CI build"
-    runs-on: macos-12
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.3'
-          host: 'mac'
-          target: 'desktop'
-          modules: 'qtconnectivity qtcharts qtpositioning qt5compat qtshadertools'
-
-      - name: Build application
-        run: |
-          qmake --version
-          qmake WatchFlower.pro CONFIG+=release
-          make -j$(sysctl -n hw.logicalcpu)
-
-      - name: Deploy application
-        run: ./deploy_macos.sh
-
-      - name: Upload app bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: WatchFlower-macOS-x86_64.zip
-          path: bin/WatchFlower-macOS-x86_64.zip
 
 ################################################################################
 
@@ -84,29 +40,85 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Qt
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
-          host: 'windows'
-          target: 'desktop'
           arch: 'win64_msvc2022_64'
-          modules: 'qtconnectivity qtcharts qtpositioning qt5compat qtshadertools'
+          modules: 'qtconnectivity qtcharts qtpositioning'
+
+      - name: Build application
+        run: |
+          qmake --version
+          qmake WatchFlower.pro CONFIG+=release
+          nmake
+
+      - name: Deploy application
+        run: |
+          mkdir deploy
+          copy release\WatchFlower.exe deploy\
+          windeployqt --qmldir qml deploy\WatchFlower.exe
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WatchFlower-Windows
+          path: deploy/
+
+################################################################################
+
+  build_macos:
+    name: "macOS CI build" 
+    runs-on: macos-12
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtconnectivity qtcharts qtpositioning'
+
+      - name: Build application
+        run: |
+          qmake --version
+          qmake WatchFlower.pro CONFIG+=release
+          make -j$(sysctl -n hw.logicalcpu)
+
+################################################################################
+
+  deploy_windows:
+    name: "Windows deployment"
+    runs-on: windows-2022
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup MSVC
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build application
-        run: |
-          qmake.exe --version
-          qmake.exe WatchFlower.pro CONFIG+=release
-          nmake.exe
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtconnectivity qtcharts qtpositioning'
 
-      - name: Deploy application
-        run: ./deploy_windows.sh
+      - name: Build and deploy application
+        run: .\deploy_windows.sh
+        shell: bash
 
-      - name: Upload Windows executable
+      - name: Upload deployment artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WatchFlower-win64
-          path: bin/WatchFlower-win64.zip
+          name: WatchFlower-Windows-Deployment
+          path: deploy/
