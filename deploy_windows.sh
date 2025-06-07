@@ -1,246 +1,183 @@
 #!/bin/bash
 
-# WatchFlower Windows deployment script
-# Fixed version addressing common CI build issues
+echo "> WatchFlower Windows deployment script"
 
-set -e  # Exit on any error
-set -x  # Print commands for debugging
+## VARIABLES ##################################################################
 
-echo "===================="
-echo "WatchFlower Windows CI Build"
-echo "===================="
+APP_NAME="WatchFlower"
+APP_VERSION=$(git describe --tags --always --dirty)
+GIT_VERSION=$(git rev-parse --short HEAD)
 
-# Configuration
-QT_VERSION="6.7.3"
-QT_ARCH="win64_msvc2022_64"
-QT_MODULES="qtconnectivity qtcharts qtpositioning qtshadertools"
-BUILD_DIR="build_windows"
-DEPLOY_DIR="WatchFlower_windows"
+PROJECT_DIR=$(pwd)
+BUILD_DIR="$PROJECT_DIR/build"
+BIN_DIR="$PROJECT_DIR/bin"
+DEPLOY_DIR="$BIN_DIR/$APP_NAME"
 
-# Print system information for debugging
-echo "System Information:"
-echo "OS: $(uname -a)"
-echo "Current directory: $(pwd)"
-echo "User: $(whoami)"
+## FUNCTIONS ##################################################################
 
-# Clean previous builds
-echo "Cleaning previous builds..."
-rm -rf ${BUILD_DIR} ${DEPLOY_DIR}
-mkdir -p ${BUILD_DIR} ${DEPLOY_DIR}
-
-# Set up Qt installation directory
-QT_DIR="${RUNNER_WORKSPACE}/Qt/${QT_VERSION}/${QT_ARCH}"
-if [ -z "${RUNNER_WORKSPACE}" ]; then
-    QT_DIR="${HOME}/Qt/${QT_VERSION}/${QT_ARCH}"
-fi
-
-echo "Qt installation directory: ${QT_DIR}"
-
-# Check if Qt is installed, if not install it
-if [ ! -d "${QT_DIR}" ]; then
-    echo "Installing Qt ${QT_VERSION}..."
-    
-    # Install aqtinstall if not available
-    python -m pip install --upgrade pip
-    python -m pip install aqtinstall
-    
-    # Create Qt directory
-    mkdir -p "$(dirname ${QT_DIR})"
-    
-    # Install Qt with required modules
-    echo "Installing Qt base..."
-    python -m aqt install-qt windows desktop ${QT_VERSION} ${QT_ARCH} -O "$(dirname $(dirname ${QT_DIR}))"
-    
-    echo "Installing Qt modules: ${QT_MODULES}"
-    for module in ${QT_MODULES}; do
-        echo "Installing module: ${module}"
-        python -m aqt install-qt windows desktop ${QT_VERSION} ${QT_ARCH} -m ${module} -O "$(dirname $(dirname ${QT_DIR}))" || {
-            echo "Warning: Failed to install module ${module}, continuing..."
-        }
-    done
-    
-    echo "Installing Qt tools..."
-    python -m aqt install-tool windows desktop tools_cmake -O "$(dirname $(dirname ${QT_DIR}))" || echo "Warning: Failed to install CMake tools"
-else
-    echo "Qt ${QT_VERSION} already installed"
-fi
-
-# Verify Qt installation
-if [ ! -d "${QT_DIR}" ]; then
-    echo "ERROR: Qt installation failed or not found at ${QT_DIR}"
-    exit 1
-fi
-
-echo "Qt installation verified at: ${QT_DIR}"
-
-# Set up environment variables
-export Qt6_DIR="${QT_DIR}/lib/cmake/Qt6"
-export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_DIR}/plugins/platforms"
-export PATH="${QT_DIR}/bin:${PATH}"
-
-# Add MSVC tools to PATH if available
-if [ -d "/d/a/_temp/msys64/mingw64/bin" ]; then
-    export PATH="/d/a/_temp/msys64/mingw64/bin:${PATH}"
-fi
-
-# Print Qt version for verification
-echo "Qt version check:"
-if command -v qmake >/dev/null 2>&1; then
-    qmake --version
-else
-    echo "Warning: qmake not found in PATH"
-fi
-
-# Check for CMake
-if ! command -v cmake >/dev/null 2>&1; then
-    echo "ERROR: CMake not found"
-    exit 1
-fi
-
-cmake --version
-
-# Configure build with CMake
-echo "Configuring build with CMake..."
-cd ${BUILD_DIR}
-
-# CMake configuration with explicit Qt6 paths and modules
-cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DQt6_DIR="${Qt6_DIR}" \
-    -DCMAKE_PREFIX_PATH="${QT_DIR}" \
-    -DCMAKE_INSTALL_PREFIX="../${DEPLOY_DIR}" \
-    -DCMAKE_CXX_STANDARD=17 \
-    -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-    -G "Visual Studio 17 2022" -A x64 || {
-    
-    echo "Visual Studio 2022 not found, trying Visual Studio 2019..."
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DQt6_DIR="${Qt6_DIR}" \
-        -DCMAKE_PREFIX_PATH="${QT_DIR}" \
-        -DCMAKE_INSTALL_PREFIX="../${DEPLOY_DIR}" \
-        -DCMAKE_CXX_STANDARD=17 \
-        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-        -G "Visual Studio 16 2019" -A x64 || {
-        
-        echo "Visual Studio generators not found, trying Ninja..."
-        cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DQt6_DIR="${Qt6_DIR}" \
-            -DCMAKE_PREFIX_PATH="${QT_DIR}" \
-            -DCMAKE_INSTALL_PREFIX="../${DEPLOY_DIR}" \
-            -DCMAKE_CXX_STANDARD=17 \
-            -DCMAKE_CXX_STANDARD_REQUIRED=ON \
-            -G "Ninja"
-    }
+print_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -c, --config      : Select build configuration (Release|Debug)"
+    echo "  -h, --help        : Show this help message"
 }
 
-# Build the application
-echo "Building WatchFlower..."
-cmake --build . --config Release --parallel $(nproc) || cmake --build . --config Release
+## ARGUMENT PARSING ###########################################################
 
-# Install the application
-echo "Installing WatchFlower..."
-cmake --install . --config Release
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--config)
+            BUILD_CONFIG="$2"
+            shift 2
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
 
-cd ..
-
-# Check if the executable was built
-EXECUTABLE_PATH="${DEPLOY_DIR}/WatchFlower.exe"
-if [ ! -f "${EXECUTABLE_PATH}" ]; then
-    # Try alternative paths
-    EXECUTABLE_PATH="${DEPLOY_DIR}/bin/WatchFlower.exe"
-    if [ ! -f "${EXECUTABLE_PATH}" ]; then
-        EXECUTABLE_PATH="${BUILD_DIR}/Release/WatchFlower.exe"
-        if [ ! -f "${EXECUTABLE_PATH}" ]; then
-            EXECUTABLE_PATH="${BUILD_DIR}/WatchFlower.exe"
-            if [ ! -f "${EXECUTABLE_PATH}" ]; then
-                echo "ERROR: WatchFlower.exe not found in expected locations"
-                find . -name "WatchFlower.exe" -type f || echo "No WatchFlower.exe found anywhere"
-                exit 1
-            fi
-        fi
-    fi
+# Set default build configuration
+if [ -z "$BUILD_CONFIG" ]; then
+    BUILD_CONFIG="Release"
 fi
 
-echo "Found executable at: ${EXECUTABLE_PATH}"
+## SETUP ######################################################################
 
-# Copy executable to deployment directory if not already there
-if [ "${EXECUTABLE_PATH}" != "${DEPLOY_DIR}/WatchFlower.exe" ]; then
-    cp "${EXECUTABLE_PATH}" "${DEPLOY_DIR}/"
+echo "> App name: $APP_NAME"
+echo "> App version: $APP_VERSION"
+echo "> Git version: $GIT_VERSION"
+echo "> Build configuration: $BUILD_CONFIG"
+echo "> Project directory: $PROJECT_DIR"
+echo "> Build directory: $BUILD_DIR"
+echo "> Deployment directory: $DEPLOY_DIR"
+
+## DEPLOYMENT #################################################################
+
+# Remove previous deployment
+if [ -d "$DEPLOY_DIR" ]; then
+    echo "> Removing previous deployment..."
+    rm -rf "$DEPLOY_DIR"
 fi
 
-# Deploy Qt dependencies
-echo "Deploying Qt dependencies..."
-cd ${DEPLOY_DIR}
+# Create deployment directory
+echo "> Creating deployment directory..."
+mkdir -p "$DEPLOY_DIR"
 
-# Use windeployqt to deploy Qt libraries
-if command -v windeployqt >/dev/null 2>&1; then
-    windeployqt.exe --release --qmldir ../qml WatchFlower.exe
+# Copy executable
+echo "> Copying executable..."
+if [ -f "$BUILD_DIR/$BUILD_CONFIG/$APP_NAME.exe" ]; then
+    cp "$BUILD_DIR/$BUILD_CONFIG/$APP_NAME.exe" "$DEPLOY_DIR/"
+elif [ -f "$BUILD_DIR/$APP_NAME.exe" ]; then
+    cp "$BUILD_DIR/$APP_NAME.exe" "$DEPLOY_DIR/"
 else
-    echo "windeployqt not found, manually copying Qt libraries..."
-    
-    # Manually copy essential Qt libraries
-    QT_LIBS="Qt6Core Qt6Gui Qt6Widgets Qt6Network Qt6Bluetooth Qt6Charts Qt6Positioning"
-    for lib in ${QT_LIBS}; do
-        if [ -f "${QT_DIR}/bin/${lib}.dll" ]; then
-            cp "${QT_DIR}/bin/${lib}.dll" .
-        else
-            echo "Warning: ${lib}.dll not found"
+    echo "Error: Cannot find $APP_NAME.exe"
+    exit 1
+fi
+
+# Find Qt installation path
+QT_DIR=""
+if [ -n "$Qt6_DIR" ]; then
+    QT_DIR="$Qt6_DIR"
+elif [ -n "$QT_ROOT_PATH" ]; then
+    QT_DIR="$QT_ROOT_PATH"
+elif [ -n "$QTDIR" ]; then
+    QT_DIR="$QTDIR"
+else
+    # Try to find Qt in common locations
+    for qt_path in "/c/Qt/6.7.3/msvc2022_64" "/d/a/_temp/Qt/6.7.3/msvc2022_64" "$RUNNER_WORKSPACE/Qt/6.7.3/msvc2022_64"; do
+        if [ -d "$qt_path" ]; then
+            QT_DIR="$qt_path"
+            break
         fi
-    done
-    
-    # Copy platforms plugin
-    mkdir -p platforms
-    if [ -f "${QT_DIR}/plugins/platforms/qwindows.dll" ]; then
-        cp "${QT_DIR}/plugins/platforms/qwindows.dll" platforms/
-    fi
-    
-    # Copy other essential plugins
-    mkdir -p imageformats bearer
-    cp "${QT_DIR}/plugins/imageformats/"*.dll imageformats/ 2>/dev/null || echo "Warning: Image format plugins not found"
-    cp "${QT_DIR}/plugins/bearer/"*.dll bearer/ 2>/dev/null || echo "Warning: Bearer plugins not found"
-fi
-
-# Copy MSVC runtime (if available)
-MSVC_REDIST_PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/Enterprise/VC/Redist/MSVC"
-if [ ! -d "${MSVC_REDIST_PATH}" ]; then
-    MSVC_REDIST_PATH="/c/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Redist/MSVC"
-fi
-if [ ! -d "${MSVC_REDIST_PATH}" ]; then
-    MSVC_REDIST_PATH="/c/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Redist/MSVC"
-fi
-
-if [ -d "${MSVC_REDIST_PATH}" ]; then
-    echo "Copying MSVC runtime libraries..."
-    find "${MSVC_REDIST_PATH}" -name "msvcp*.dll" -o -name "vcruntime*.dll" | head -10 | while read dll; do
-        cp "$dll" . 2>/dev/null || echo "Warning: Could not copy $dll"
     done
 fi
 
-cd ..
-
-# Verify deployment
-echo "Verifying deployment..."
-ls -la ${DEPLOY_DIR}/
-echo "WatchFlower.exe info:"
-file ${DEPLOY_DIR}/WatchFlower.exe || echo "file command not available"
-
-# Create archive
-echo "Creating deployment archive..."
-ARCHIVE_NAME="WatchFlower_Windows_$(date +%Y%m%d).zip"
-if command -v 7z >/dev/null 2>&1; then
-    7z a ${ARCHIVE_NAME} ${DEPLOY_DIR}/*
-elif command -v zip >/dev/null 2>&1; then
-    zip -r ${ARCHIVE_NAME} ${DEPLOY_DIR}/
-else
-    echo "Warning: No archive tool available (7z or zip)"
+if [ -z "$QT_DIR" ] || [ ! -d "$QT_DIR" ]; then
+    echo "Error: Cannot find Qt installation directory"
+    echo "Please set Qt6_DIR, QT_ROOT_PATH, or QTDIR environment variable"
+    exit 1
 fi
 
-echo "===================="
-echo "Windows deployment completed successfully!"
-echo "Executable: ${DEPLOY_DIR}/WatchFlower.exe"
-if [ -f "${ARCHIVE_NAME}" ]; then
-    echo "Archive: ${ARCHIVE_NAME}"
+echo "> Qt directory: $QT_DIR"
+
+# Convert Windows path to Unix path for windeployqt
+QT_BIN_DIR="$QT_DIR/bin"
+WINDEPLOYQT="$QT_BIN_DIR/windeployqt.exe"
+
+# Check if windeployqt exists
+if [ ! -f "$WINDEPLOYQT" ]; then
+    echo "Error: windeployqt.exe not found at $WINDEPLOYQT"
+    exit 1
 fi
-echo "===================="
+
+# Run windeployqt
+echo "> Running windeployqt..."
+cd "$DEPLOY_DIR"
+
+# Convert deployment directory to Windows path for windeployqt
+DEPLOY_DIR_WIN=$(cygpath -w "$DEPLOY_DIR" 2>/dev/null || echo "$DEPLOY_DIR")
+
+"$WINDEPLOYQT" \
+    --dir "$DEPLOY_DIR_WIN" \
+    --release \
+    --compiler-runtime \
+    --no-translations \
+    --no-system-d3d-compiler \
+    --no-opengl-sw \
+    --qmldir "$PROJECT_DIR/qml" \
+    "$APP_NAME.exe"
+
+if [ $? -ne 0 ]; then
+    echo "Error: windeployqt failed"
+    exit 1
+fi
+
+# Copy additional Qt modules if needed
+echo "> Copying additional Qt modules..."
+QT_PLUGINS_DIR="$QT_DIR/plugins"
+DEPLOY_PLUGINS_DIR="$DEPLOY_DIR/plugins"
+
+# Ensure plugins directory exists
+mkdir -p "$DEPLOY_PLUGINS_DIR"
+
+# Copy required plugins
+if [ -d "$QT_PLUGINS_DIR/bearer" ]; then
+    cp -r "$QT_PLUGINS_DIR/bearer" "$DEPLOY_PLUGINS_DIR/"
+fi
+
+if [ -d "$QT_PLUGINS_DIR/position" ]; then
+    cp -r "$QT_PLUGINS_DIR/position" "$DEPLOY_PLUGINS_DIR/"
+fi
+
+# Copy additional DLLs if needed
+QT_BIN_DIR_UNIX=$(cygpath -u "$QT_BIN_DIR" 2>/dev/null || echo "$QT_BIN_DIR")
+for dll in Qt6Bluetooth.dll Qt6Charts.dll Qt6Positioning.dll; do
+    if [ -f "$QT_BIN_DIR_UNIX/$dll" ]; then
+        cp "$QT_BIN_DIR_UNIX/$dll" "$DEPLOY_DIR/"
+    fi
+done
+
+# Create version info file
+echo "> Creating version info..."
+cat > "$DEPLOY_DIR/version.txt" << EOF
+$APP_NAME $APP_VERSION
+Git: $GIT_VERSION
+Build: $BUILD_CONFIG
+Date: $(date)
+EOF
+
+# Create deployment info
+echo "> Deployment completed successfully!"
+echo "> Deployed files:"
+find "$DEPLOY_DIR" -type f | head -20
+echo "> Total files: $(find "$DEPLOY_DIR" -type f | wc -l)"
+echo "> Deployment size: $(du -sh "$DEPLOY_DIR" | cut -f1)"
+
+cd "$PROJECT_DIR"
