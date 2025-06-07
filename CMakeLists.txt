@@ -98,7 +98,7 @@ endif()
 if(NOT IOS AND NOT ANDROID)
     # Set app icons
     if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-        set(app_icon_windows "${CMAKE_SOURCE_DIR}/assets/windows/${CMAKE_PROJECT_NAME}.rc")
+        set(app_icon_windows "${CMAKE_SOURCE_DIR}/assets/windows/info.rc")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         set(app_icon_macos "${CMAKE_SOURCE_DIR}/assets/macos/${CMAKE_PROJECT_NAME}.icns")
     endif()
