@@ -43,39 +43,6 @@ jobs:
           echo "$Env:USERPROFILE\Qt\6.7.3\msvc2019_64\bin" >> $Env:GITHUB_PATH
 
 
-
-
-
-      # Add these steps to your Windows job in builds_desktop.yml
-      # Replace or add after the MSYS2 setup step:
-      
-      - name: Setup MSYS2 with Qt Tools
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-qt5-base
-            mingw-w64-x86_64-qt5-declarative
-            mingw-w64-x86_64-qt5-tools
-            mingw-w64-x86_64-qt5-connectivity
-            mingw-w64-x86_64-qt5-charts
-      
-      - name: Build Application
-        shell: msys2 {0}
-        run: |
-          export PATH="/mingw64/bin:$PATH"
-          qmake WatchFlower.pro
-          make -j$(nproc)
-      
-      - name: Deploy Windows Application
-        shell: msys2 {0}
-        run: |
-          export PATH="/mingw64/bin:$PATH"
-          chmod +x deploy_windows.sh
-          ./deploy_windows.sh
 ####################################################
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
