@@ -84,7 +84,7 @@ cd "$BUILD_DIR"
 
 # Generate Makefile
 print_info "Running qmake..."
-qmake ../WatchFlower.pro \
+qmake ../WatchFlower \
     CONFIG+=release \
     CONFIG+=force_debug_info \
     CONFIG+=separate_debug_info \
