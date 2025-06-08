@@ -54,7 +54,7 @@ jobs:
              cmake --build build/ --config Release
       # Deploy application
       - name: Deploy application
-        run: ./deploy_linux.sh -c -i -p
+        run: ./deploy_linux.sh -c -i -p -r
 
       # Upload application ZIP
       - name: Upload application ZIP
